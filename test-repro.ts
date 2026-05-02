@@ -21,9 +21,13 @@ async function main() {
       slippage: 0.01
     });
     console.log("Success", res);
-  } catch (e) {
-    console.error("Error:", e.message);
-    console.error(e.stack);
+  } catch (e: unknown) {
+    if (e instanceof Error) {
+      console.error("Error:", e.message);
+      console.error(e.stack);
+    } else {
+      console.error("Error:", String(e));
+    }
   }
 }
 main().catch(console.error);
