@@ -3,6 +3,29 @@ import { SwapServiceImpl } from "../service/swap.service.js";
 import type { Hono } from "hono";
 
 export const SwapRoute = (app: Hono, raydium: Raydium) => {
+  app.get("/quote", async (c) => {
+    try {
+      const swapService = new SwapServiceImpl(raydium);
+
+      const slippageRaw = c.req.query("slippage");
+      const slippage =
+        slippageRaw === undefined ? undefined : Number.parseFloat(slippageRaw);
+
+      const data = await swapService.GetQuote({
+        poolId: c.req.query("poolId"),
+        inputMint: c.req.query("inputMint"),
+        amountIn: c.req.query("amountIn"),
+        slippage,
+      });
+
+      return c.json({ status: "ok", data });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to compute swap quote";
+      return c.json({ status: "error", message }, 400);
+    }
+  });
+
   app.get("/swap", async (c) => {
     try {
       const swapService = new SwapServiceImpl(raydium);
@@ -11,7 +34,7 @@ export const SwapRoute = (app: Hono, raydium: Raydium) => {
       const slippage =
         slippageRaw === undefined ? undefined : Number.parseFloat(slippageRaw);
 
-      const data = await swapService.GetInfo({
+      const data = await swapService.GetQuote({
         poolId: c.req.query("poolId"),
         inputMint: c.req.query("inputMint"),
         amountIn: c.req.query("amountIn"),
@@ -42,7 +65,9 @@ export const SwapRoute = (app: Hono, raydium: Raydium) => {
       return c.json({ status: "ok", data });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to build swap transaction";
+        error instanceof Error
+          ? error.message
+          : "Failed to build swap transaction";
       return c.json({ status: "error", message }, 400);
     }
   });

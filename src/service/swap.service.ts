@@ -54,6 +54,7 @@ export interface SwapQuoteResult {
 }
 
 interface SwapService {
+  GetQuote(params?: GetSwapInfoParams): Promise<SwapQuoteResult>;
   GetInfo(params?: GetSwapInfoParams): Promise<SwapQuoteResult>;
   Swap(params: SwapParams): Promise<SwapResult>;
 }
@@ -62,6 +63,10 @@ export class SwapServiceImpl implements SwapService {
   constructor(private raydium: Raydium) {}
 
   async GetInfo(params?: GetSwapInfoParams): Promise<SwapQuoteResult> {
+    return this.GetQuote(params);
+  }
+
+  async GetQuote(params?: GetSwapInfoParams): Promise<SwapQuoteResult> {
     const poolId = (params?.poolId || DEFAULT_POOL_ID).trim();
     const amountInRaw = (params?.amountIn || DEFAULT_AMOUNT_IN).trim();
     const slippage = params?.slippage ?? DEFAULT_SLIPPAGE;

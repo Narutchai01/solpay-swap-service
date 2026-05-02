@@ -3,10 +3,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: solpay-swap-app
+    container_name: solpay-swap-service
     ports:
       - "${PORT}:${PORT}"
     environment:
       - PORT=${PORT}
       - RPC_URL=${RPC_URL}
     restart: unless-stopped
+    networks:
+      - solpay-core-service_solpay-network
+
+networks:
+  solpay-core-service_solpay-network:
+    external: true

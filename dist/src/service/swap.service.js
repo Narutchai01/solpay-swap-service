@@ -11,6 +11,9 @@ export class SwapServiceImpl {
         this.raydium = raydium;
     }
     async GetInfo(params) {
+        return this.GetQuote(params);
+    }
+    async GetQuote(params) {
         const poolId = (params?.poolId || DEFAULT_POOL_ID).trim();
         const amountInRaw = (params?.amountIn || DEFAULT_AMOUNT_IN).trim();
         const slippage = params?.slippage ?? DEFAULT_SLIPPAGE;
