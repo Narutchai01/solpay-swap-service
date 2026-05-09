@@ -18,6 +18,17 @@ export interface SwapParams extends GetSwapInfoParams {
   wallet: string;
 }
 
+export interface SwapInstruction {
+  programId: string;
+  keys: { pubkey: string; isSigner: boolean; isWritable: boolean }[];
+  data: string;
+}
+
+export interface SwapInstructionsResult {
+  instructions: SwapInstruction[];
+  lookupTableAddresses: string[];
+}
+
 export interface SwapResult {
   txId: string;
   transaction: string;
@@ -54,6 +65,7 @@ export interface SwapQuoteResult {
 }
 
 interface SwapService {
+  BuildInstructions(params: SwapParams): Promise<SwapInstructionsResult>;
   GetQuote(params?: GetSwapInfoParams): Promise<SwapQuoteResult>;
   GetInfo(params?: GetSwapInfoParams): Promise<SwapQuoteResult>;
   Swap(params: SwapParams): Promise<SwapResult>;
@@ -140,6 +152,127 @@ export class SwapServiceImpl implements SwapService {
         rawAmount: quote.fee.raw.toString(),
         decimalAmount: quote.fee.toFixed(),
       },
+    };
+  }
+
+  async BuildInstructions(params: SwapParams): Promise<SwapInstructionsResult> {
+    const poolId = (params?.poolId || DEFAULT_POOL_ID).trim();
+    const amountInRaw = (params?.amountIn || DEFAULT_AMOUNT_IN).trim();
+    const slippage = params?.slippage ?? DEFAULT_SLIPPAGE;
+    const wallet = params.wallet?.trim();
+
+    if (!wallet) {
+      throw new Error("wallet is required");
+    }
+
+    if (!/^\d+$/.test(amountInRaw) || new BN(amountInRaw).lte(new BN(0))) {
+      throw new Error("amountIn must be a positive integer string");
+    }
+
+    const connection = (this.raydium as any).connection;
+    const cluster = connection.rpcEndpoint.includes("devnet")
+      ? "devnet"
+      : "mainnet";
+
+    const raydium = await Raydium.load({
+      connection,
+      owner: new PublicKey(wallet),
+      cluster,
+      disableFeatureCheck: true,
+    });
+
+    const { poolInfo, poolKeys } =
+      await raydium.clmm.getPoolInfoFromRpc(poolId);
+
+    const inputMint = (params?.inputMint || poolInfo.mintA.address).trim();
+    const tokenOut =
+      poolInfo.mintA.address === inputMint ? poolInfo.mintB : poolInfo.mintA;
+
+    const clmmPoolInfo = await PoolUtils.fetchComputeClmmInfo({
+      connection: raydium.connection,
+      poolInfo,
+    });
+
+    const tickCache = await PoolUtils.fetchMultiplePoolTickArrays({
+      connection: raydium.connection,
+      poolKeys: [clmmPoolInfo],
+    });
+
+    const quote = PoolUtils.computeAmountOutFormat({
+      poolInfo: clmmPoolInfo as any,
+      tickArrayCache: tickCache[poolId] as any,
+      amountIn: new BN(amountInRaw),
+      tokenOut,
+      slippage,
+      epochInfo: await connection.getEpochInfo(),
+    });
+
+    const swapResult = (await raydium.clmm.swap({
+      poolInfo,
+      poolKeys,
+      inputMint,
+      amountIn: new BN(amountInRaw),
+      amountOutMin: new BN(quote.minAmountOut.amount.raw.toString()),
+      observationId: new PublicKey(poolKeys.observationId),
+      ownerInfo: { useSOLBalance: true },
+      remainingAccounts: (quote.remainingAccounts ||
+        []) as unknown as PublicKey[],
+      txVersion: TxVersion.LEGACY,
+    })) as any;
+
+    const instructions: SwapInstruction[] = [];
+    const lookupTableAddresses: string[] = [];
+
+    const builder = swapResult?.builder;
+    const builderInstructions = builder?.allInstructions ?? [];
+
+    if (Array.isArray(builderInstructions) && builderInstructions.length > 0) {
+      for (const ix of builderInstructions) {
+        instructions.push({
+          programId: ix.programId.toBase58(),
+          keys: ix.keys.map((k: any) => ({
+            pubkey: k.pubkey.toBase58(),
+            isSigner: k.isSigner,
+            isWritable: k.isWritable,
+          })),
+          data: Buffer.from(ix.data).toString("base64"),
+        });
+      }
+
+      const builderLookupTables = builder?.AllTxData?.lookupTableAddress ?? [];
+      for (const address of builderLookupTables) {
+        lookupTableAddresses.push(address.toString());
+      }
+    } else {
+      const innerTransactions = swapResult?.innerTransactions;
+      if (!Array.isArray(innerTransactions)) {
+        throw new Error("Raydium swap did not return instructions");
+      }
+
+      for (const inner of innerTransactions) {
+        for (const ix of inner.instructions) {
+          instructions.push({
+            programId: ix.programId.toBase58(),
+            keys: ix.keys.map((k: any) => ({
+              pubkey: k.pubkey.toBase58(),
+              isSigner: k.isSigner,
+              isWritable: k.isWritable,
+            })),
+            data: Buffer.from(ix.data).toString("base64"),
+          });
+        }
+
+        if (inner.lookupTableAddress) {
+          for (const address of inner.lookupTableAddress) {
+            lookupTableAddresses.push(address.toString());
+          }
+        }
+      }
+    }
+
+    return {
+      instructions,
+      lookupTableAddresses: [...new Set(lookupTableAddresses)],
     };
   }
 

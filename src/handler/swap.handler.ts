@@ -49,6 +49,29 @@ export const SwapRoute = (app: Hono, raydium: Raydium) => {
     }
   });
 
+  app.post("/swap/build", async (c) => {
+    try {
+      const swapService = new SwapServiceImpl(raydium);
+      const body = await c.req.json().catch(() => ({}));
+
+      const data = await swapService.BuildInstructions({
+        wallet: body.wallet,
+        poolId: body.poolId,
+        inputMint: body.inputMint,
+        amountIn: body.amountIn,
+        slippage: body.slippage,
+      });
+
+      return c.json({ status: "ok", data });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to build swap instructions";
+      return c.json({ status: "error", message }, 400);
+    }
+  });
+
   app.post("/swap", async (c) => {
     try {
       const swapService = new SwapServiceImpl(raydium);
